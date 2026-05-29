@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
 /* ----------------------------------------------------------------------------
@@ -88,20 +88,22 @@ const FINDINGS: Finding[] = [
 const PROMPT_TEXT =
   "Run a workflow to audit every API endpoint under src/routes/ for missing auth checks";
 
-function usePhaseEngine() {
+function usePhaseEngine(speed: number) {
   const [phaseIdx, setPhaseIdx] = useState(0);
   const [progress, setProgress] = useState(0); // 0..1 within current phase's animation
   const [playing, setPlaying] = useState(true);
   const [holding, setHolding] = useState(false); // dwelling on a finished frame
   const [done, setDone] = useState(false);
 
-  // refs are the source of truth for the clock so jump/reset apply mid-frame
+  // refs are the source of truth for the clock so jump/reset/seek apply mid-frame
   const idxRef = useRef(0);
   const progRef = useRef(0);
   const holdRef = useRef(0); // ms accumulated in the current dwell
   const holdingRef = useRef(false);
   const raf = useRef<number | null>(null);
   const last = useRef<number | null>(null);
+  const speedRef = useRef(speed); // read live in the loop so changes apply mid-run
+  speedRef.current = speed;
 
   const goTo = useCallback((idx: number) => {
     idxRef.current = idx;
@@ -119,6 +121,21 @@ function usePhaseEngine() {
   const reset = useCallback(() => goTo(0), [goTo]);
   const jump = useCallback((idx: number) => goTo(idx), [goTo]);
 
+  // Seek to an exact position within a step. Preserves the play/pause state so
+  // you can pause and scrub to inspect a precise frame.
+  const seek = useCallback((idx: number, p: number) => {
+    const clamped = Math.max(0, Math.min(1, p));
+    idxRef.current = idx;
+    progRef.current = clamped;
+    holdRef.current = 0;
+    holdingRef.current = false;
+    last.current = null;
+    setPhaseIdx(idx);
+    setProgress(clamped);
+    setHolding(false);
+    setDone(false);
+  }, []);
+
   useEffect(() => {
     if (!playing) {
       if (raf.current) cancelAnimationFrame(raf.current);
@@ -131,15 +148,16 @@ function usePhaseEngine() {
       last.current = t;
       const phase = PHASES[idxRef.current];
 
+      const sdt = dt * speedRef.current; // speed-scaled elapsed time
       if (!holdingRef.current) {
-        progRef.current = Math.min(1, progRef.current + dt / phase.animMs);
+        progRef.current = Math.min(1, progRef.current + sdt / phase.animMs);
         if (progRef.current >= 1) {
           holdingRef.current = true;
           holdRef.current = 0;
           setHolding(true);
         }
       } else {
-        holdRef.current += dt;
+        holdRef.current += sdt;
         if (holdRef.current >= phase.holdMs) {
           if (idxRef.current < PHASES.length - 1) {
             idxRef.current += 1;
@@ -166,11 +184,13 @@ function usePhaseEngine() {
     };
   }, [playing]);
 
-  return { phaseIdx, progress, playing, holding, done, setPlaying, reset, jump };
+  return { phaseIdx, progress, playing, holding, done, setPlaying, reset, jump, seek };
 }
 
 export default function Simulator() {
-  const { phaseIdx, progress, playing, holding, done, setPlaying, reset, jump } = usePhaseEngine();
+  const [speed, setSpeed] = useState(1);
+  const { phaseIdx, progress, playing, holding, done, setPlaying, reset, jump, seek } =
+    usePhaseEngine(speed);
   const phase = PHASES[phaseIdx];
 
   return (
@@ -183,7 +203,7 @@ export default function Simulator() {
         <span className="ml-3 font-mono text-xs text-faint">claude code &mdash; /workflows</span>
       </div>
 
-      <StageRail phaseIdx={phaseIdx} progress={progress} onJump={jump} />
+      <StageRail phaseIdx={phaseIdx} progress={progress} onJump={jump} onSeek={seek} />
 
       {/* canvas */}
       <div className="relative min-h-[400px] px-5 py-6 sm:px-8">
@@ -224,6 +244,21 @@ export default function Simulator() {
           >
             <RestartIcon /> Restart
           </button>
+
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-surface-2 p-0.5">
+            {[0.5, 1, 2].map((s) => (
+              <button
+                key={s}
+                onClick={() => setSpeed(s)}
+                className={`rounded-md px-2 py-1 font-mono text-xs transition ${
+                  speed === s ? "bg-accent text-bg" : "text-muted hover:text-text"
+                }`}
+              >
+                {s}&times;
+              </button>
+            ))}
+          </div>
+
           <div className="ml-auto flex items-center gap-3">
             {playing && holding && !done && (
               <span className="flex items-center gap-1.5 font-mono text-xs text-accent-soft">
@@ -247,22 +282,30 @@ function StageRail({
   phaseIdx,
   progress,
   onJump,
+  onSeek,
 }: {
   phaseIdx: number;
   progress: number;
   onJump: (i: number) => void;
+  onSeek: (i: number, p: number) => void;
 }) {
+  const seekFromEvent = (e: MouseEvent<HTMLDivElement>, i: number) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    onSeek(i, (e.clientX - r.left) / r.width);
+  };
+
   return (
     <div className="flex items-stretch gap-1 px-3 py-3 sm:px-6 overflow-x-auto scroll-thin">
       {PHASES.map((p, i) => {
         const state = i < phaseIdx ? "done" : i === phaseIdx ? "active" : "todo";
+        const fill = state === "done" ? 100 : state === "active" ? progress * 100 : 0;
         return (
-          <button
-            key={p.id}
-            onClick={() => onJump(i)}
-            className="group flex min-w-[84px] flex-1 flex-col gap-1.5 text-left"
-          >
-            <div className="flex items-center gap-2">
+          <div key={p.id} className="group flex min-w-[84px] flex-1 flex-col gap-1.5">
+            <button
+              onClick={() => onJump(i)}
+              className="flex items-center gap-2 text-left"
+              title={`Jump to ${p.label}`}
+            >
               <span
                 className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10px] font-bold transition ${
                   state === "done"
@@ -281,17 +324,21 @@ function StageRail({
               >
                 {p.label}
               </span>
+            </button>
+            {/* clickable scrub track — taller hit area than the visible 1.5px bar */}
+            <div
+              onClick={(e) => seekFromEvent(e, i)}
+              className="group/bar -my-1 cursor-pointer py-1"
+              title={`Click to seek within ${p.label}`}
+            >
+              <div className="h-1.5 overflow-hidden rounded-full bg-surface-2 transition-colors group-hover/bar:bg-border">
+                <div
+                  className="h-full rounded-full bg-accent transition-[width] duration-150"
+                  style={{ width: `${fill}%` }}
+                />
+              </div>
             </div>
-            <div className="h-1 overflow-hidden rounded-full bg-surface-2">
-              <div
-                className="h-full rounded-full bg-accent transition-[width] duration-150"
-                style={{
-                  width:
-                    state === "done" ? "100%" : state === "active" ? `${progress * 100}%` : "0%",
-                }}
-              />
-            </div>
-          </button>
+          </div>
         );
       })}
     </div>
