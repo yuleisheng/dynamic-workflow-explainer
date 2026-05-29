@@ -268,9 +268,9 @@ function Availability() {
           and the Agent SDK.
         </p>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <MiniCard title="On by default" body="Max and Team plans." />
-          <MiniCard title="Turn on manually" body="Pro — the Dynamic workflows row in /config." />
-          <MiniCard title="Admin-gated" body="Enterprise — enabled by administrators." />
+          <MiniCard title="On Pro" body="Enable from the Dynamic workflows row in /config." />
+          <MiniCard title="Version" body="Requires Claude Code v2.1.154 or later." />
+          <MiniCard title="Org control" body="Admins can disable org-wide in managed settings or the admin settings page." />
         </div>
         <p className="mt-5 text-xs leading-relaxed text-faint">
           Turn off anytime: toggle Dynamic workflows in <code className="font-mono">/config</code>,
