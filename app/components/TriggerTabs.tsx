@@ -16,10 +16,10 @@ const TRIGGERS: Trigger[] = [
   {
     id: "keyword",
     tab: "The word “workflow”",
-    command: "Run a workflow to audit every API endpoint under src/routes/ for missing auth checks",
+    command: "Run a workflow to research if memory stock is still worth investing",
     highlight: "workflow",
     title: "Drop “workflow” into any prompt",
-    body: "Include the word workflow anywhere and Claude writes an orchestration script for that one task instead of working through it turn by turn. Claude Code highlights the word — press alt+w to ignore a false trigger.",
+    body: "Include the word workflow anywhere and Claude writes an orchestration script for that one task instead of working through it turn by turn. For this prompt, it can split demand, pricing, valuation, analyst sentiment, and risks across parallel web-research agents.",
   },
   {
     id: "ultracode",
@@ -31,7 +31,7 @@ const TRIGGERS: Trigger[] = [
   {
     id: "deep-research",
     tab: "/deep-research",
-    command: "/deep-research What changed in the Node.js permission model between v20 and v22?",
+    command: "/deep-research Is Micron still worth investing in after the AI-memory rally?",
     title: "Run the bundled workflow",
     body: "/deep-research is built in. It fans web searches across several angles, fetches and cross-checks sources, votes on each claim, and returns a cited report with the claims that didn't survive filtered out. Needs the WebSearch tool enabled.",
   },

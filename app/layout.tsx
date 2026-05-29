@@ -15,11 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Dynamic Workflows in Claude Code — an interactive explainer",
   description:
-    "A dynamic workflow is a JavaScript script that orchestrates subagents at scale. See how Claude fans work out across hundreds of parallel agents, cross-checks the results, and returns a single answer.",
+    "A dynamic workflow is a JavaScript script that orchestrates subagents at scale. See a real memory-stock research prompt fan out across parallel agents, get stress-tested, and return one cited brief.",
   openGraph: {
     title: "Dynamic Workflows in Claude Code — interactive explainer",
     description:
-      "Watch a prompt fan out into hundreds of parallel subagents, get cross-checked, and converge into one report.",
+      "Watch a real research prompt fan out into parallel subagents, get stress-tested, and converge into one cited brief.",
     type: "website",
   },
 };

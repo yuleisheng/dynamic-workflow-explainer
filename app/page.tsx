@@ -14,9 +14,9 @@ export default function Home() {
 
         <Section
           id="simulator"
-          eyebrow="See it run"
-          title="One prompt, hundreds of agents, one answer"
-          lead="Press play. Watch a single request become an orchestration script, fan out across a capped pool of parallel subagents, get cross-checked, and converge into a single report."
+          eyebrow="See a real example run"
+          title="One finance prompt, parallel research, one cited brief"
+          lead="Press play. Watch a memory-stock investing question become an orchestration script, fan out across specialist web-research agents, get stress-tested by bull and bear agents, and converge into a balanced report."
         >
           <Simulator />
         </Section>
@@ -43,7 +43,7 @@ export default function Home() {
           id="trigger"
           eyebrow="How to start one"
           title="Four ways to launch a workflow"
-          lead="You never write the script yourself — you describe the task and Claude writes it. Here's how to ask."
+          lead="You never write the script yourself — you describe the task and Claude writes it. Here are real prompts and commands that can start one."
         >
           <TriggerTabs />
         </Section>
@@ -260,7 +260,7 @@ function Availability() {
   return (
     <section className="py-16">
       <div className="rounded-2xl border border-border bg-gradient-to-b from-surface/80 to-surface/30 p-6 sm:p-8">
-        <h3 className="text-lg font-semibold">Where it's available</h3>
+        <h3 className="text-lg font-semibold">Where it&apos;s available</h3>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">
           In research preview on all paid plans (Pro, Max, Team, Enterprise), the Anthropic API,
           Amazon Bedrock, Google Cloud Vertex AI, and Microsoft Foundry — in the CLI, Desktop app,
@@ -301,9 +301,10 @@ function Footer() {
           <div className="max-w-sm">
             <div className="text-sm font-semibold">Dynamic Workflows — an interactive explainer</div>
             <p className="mt-1 text-xs leading-relaxed text-faint">
-              An unofficial educational visualization of a Claude Code feature. The simulator&apos;s
-              script, agent counts, and findings are illustrative, not a real API. Not affiliated
-              with Anthropic.
+              An unofficial educational visualization of a Claude Code feature. The simulator uses
+              a real memory-stock research prompt and public source snippets as example content;
+              the verdict is illustrative research, not personalized financial advice. Not
+              affiliated with Anthropic.
             </p>
           </div>
           <div className="text-sm">

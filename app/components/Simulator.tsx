@@ -4,13 +4,14 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react
 import { AnimatePresence, motion } from "motion/react";
 
 /* ----------------------------------------------------------------------------
- * The animated simulator: a single prompt fans out into hundreds of parallel
- * subagents, capped at 16 concurrent, then findings are cross-checked before a
- * single report lands back in the session. Numbers/findings are illustrative.
+ * The animated simulator: a real finance-research prompt becomes a workflow
+ * script, fans out into parallel web-research agents, gets stress-tested by
+ * bull/bear agents, and returns one cited brief. The source snippets below are
+ * real public examples; the investment verdict remains illustrative.
  * -------------------------------------------------------------------------- */
 
-const TOTAL_AGENTS = 248;
-const MAX_CONCURRENT = 16;
+const TOTAL_AGENTS = 8; // 5 research + 2 debate + 1 synthesis
+const RUNTIME_CAP = 16;
 
 type Phase = "prompt" | "plan" | "fanout" | "verify" | "report";
 
@@ -20,73 +21,177 @@ const PHASES: { id: Phase; label: string; blurb: string; animMs: number; holdMs:
   {
     id: "prompt",
     label: "Prompt",
-    blurb: "You describe the task. The word “workflow” tells Claude to orchestrate instead of working turn by turn.",
+    blurb: "You ask for investment research. The word “workflow” tells Claude to orchestrate a multi-agent run instead of answering from one chat turn.",
     animMs: 2600,
     holdMs: 1400,
   },
   {
     id: "plan",
     label: "Plan → script",
-    blurb: "Claude writes a JavaScript orchestration script. The plan now lives in code you can read and rerun — not in the chat.",
+    blurb: "Claude writes a JavaScript script with phases, schemas, and parallel agents. The plan now lives in code you can read and rerun.",
     animMs: 4200,
     holdMs: 1600,
   },
   {
     id: "fanout",
-    label: "Fan-out",
-    blurb: "A runtime executes the script in the background, spawning subagents. At most 16 run at once; up to 1,000 total per run.",
+    label: "Research fan-out",
+    blurb: "Five web-research agents run in parallel across demand, supply/pricing, valuation, analysts, and risks — with the runtime enforcing the 16-agent cap.",
     animMs: 6000,
     holdMs: 1700,
   },
   {
     id: "verify",
-    label: "Cross-check",
-    blurb: "Independent agents try to refute each finding. Claims that don’t survive the adversarial review are filtered out.",
+    label: "Bull/bear debate",
+    blurb: "Two fresh agents argue the strongest bull and bear cases using only the research digest, then flag weak assumptions before synthesis.",
     animMs: 4200,
     holdMs: 2400,
   },
   {
     id: "report",
-    label: "Report",
-    blurb: "Only the final, verified answer lands in your context — with citations. Intermediate results stayed in script variables.",
+    label: "Cited brief",
+    blurb: "Only the final balanced brief lands in your context — with cited numbers, a watch list, and a not-personalized-advice disclaimer.",
     animMs: 2400,
     holdMs: 900,
   },
 ];
 
 const SCRIPT_LINES = [
-  "// workflow.js — written by Claude, run by the runtime",
-  "const files = await glob('src/routes/**/*.ts');",
+  "export const meta = { name: 'memory-stock-research' };",
   "",
-  "// fan out: one subagent per file (≤ 16 at a time)",
-  "const found = await mapAgents(files, (file, agent) =>",
-  "  agent.run(`Audit ${file} for missing auth checks`));",
+  "const dimensions = ['demand', 'supply_pricing', 'valuation', 'analysts', 'risks'];",
+  "const tooling = 'Use WebSearch + WebFetch; cite title, URL, date; no invented numbers.';",
   "",
-  "// cross-check: a fresh agent tries to refute each finding",
-  "const checked = await mapAgents(found, (f, agent) =>",
-  "  agent.run(`Try to refute: ${f.claim}`));",
+  "phase('Research');",
+  "const research = await parallel(dimensions.map((d) => () =>",
+  "  agent(`${tooling} Research ${d} for memory stocks as of mid-2026.`,",
+  "    { label: `research:${d}`, schema: RESEARCH_SCHEMA })",
+  "));",
   "",
-  "return report(checked.filter(c => c.survived));",
+  "const digest = research.map(formatFinding).join('\\n\\n');",
+  "phase('Stress-test');",
+  "const debate = await parallel(['bull', 'bear'].map((stance) => () =>",
+  "  agent(`${stance.toUpperCase()} case using ONLY:\\n${digest}`,",
+  "    { label: `debate:${stance}`, schema: DEBATE_SCHEMA })",
+  "));",
+  "",
+  "phase('Synthesize');",
+  "return { report: await agent(finalBriefPrompt(digest, debate),",
+  "  { label: 'synthesize:report' }) };",
 ];
 
-type Finding = {
-  file: string;
+type ResearchWorker = {
+  key: string;
+  label: string;
+  focus: string;
+  output: string;
+};
+
+const RESEARCH_WORKERS: ResearchWorker[] = [
+  {
+    key: "demand",
+    label: "Demand",
+    focus: "AI/data-center, HBM, PC/phone refresh, enterprise SSDs",
+    output: "AI/HBM is the main bull driver; consumer demand is less decisive.",
+  },
+  {
+    key: "supply_pricing",
+    label: "Supply + pricing",
+    focus: "DRAM/NAND contract prices, inventories, capex discipline",
+    output: "Tight supply and rising contract prices support the upcycle.",
+  },
+  {
+    key: "valuation",
+    label: "Valuation",
+    focus: "Micron, SK Hynix, Samsung earnings and cycle multiples",
+    output: "The stock needs a cycle-aware valuation check, not a simple AI multiple.",
+  },
+  {
+    key: "analysts",
+    label: "Analysts",
+    focus: "Recent upgrades, downgrades, targets, and named calls",
+    output: "Sentiment is bullish but creates risk if revisions stop improving.",
+  },
+  {
+    key: "risks",
+    label: "Risks",
+    focus: "Oversupply, China competition, geopolitics, customer concentration",
+    output: "The bear case is mostly timing, cycle peak, and supply response risk.",
+  },
+];
+
+type DebateFinding = {
+  source: string;
+  sourceUrl: string;
   claim: string;
   survives: boolean;
   reason: string;
 };
 
-const FINDINGS: Finding[] = [
-  { file: "src/routes/users.ts:42", claim: "DELETE /users/:id has no auth middleware", survives: true, reason: "confirmed by 2 reviewers" },
-  { file: "src/routes/billing.ts:88", claim: "POST /charge skips the role check", survives: true, reason: "reproduced with a viewer token" },
-  { file: "src/routes/health.ts:5", claim: "/health is unauthenticated", survives: false, reason: "intended public endpoint" },
-  { file: "src/routes/admin.ts:30", claim: "GET /admin/export is unprotected", survives: true, reason: "no session guard found" },
-  { file: "src/routes/auth.ts:12", claim: "/login has no rate limit", survives: true, reason: "confirmed, abuse risk" },
-  { file: "src/routes/legacy.ts:120", claim: "token check is bypassable", survives: false, reason: "could not reproduce" },
+const SOURCE_LINKS = [
+  {
+    title: "Micron FY2025 results",
+    date: "Sep 23, 2025",
+    url: "https://investors.micron.com/news-releases/news-release-details/micron-technology-inc-reports-results-fourth-quarter-and-full-8",
+  },
+  {
+    title: "Evertiq / TrendForce DRAM + NAND forecast",
+    date: "Jan 5, 2026",
+    url: "https://evertiq.com/news/2026-01-05-dram-and-nand-flash-prices-to-surge-in-q1-2026",
+  },
+  {
+    title: "Neumonda memory market 2026 risks",
+    date: "Jan 20, 2026",
+    url: "https://www.neumonda.com/memory-market-2026-scarcity-strategy-and-security-of-supply/",
+  },
+];
+
+const DEBATE_FINDINGS: DebateFinding[] = [
+  {
+    source: "Micron FY2025 results · Sep 23, 2025",
+    sourceUrl: SOURCE_LINKS[0].url,
+    claim: "Micron reported FY2025 revenue of $37.38B, up from $25.11B in FY2024.",
+    survives: true,
+    reason: "official company result",
+  },
+  {
+    source: "Evertiq / TrendForce · Jan 5, 2026",
+    sourceUrl: SOURCE_LINKS[1].url,
+    claim: "TrendForce forecast Q1 2026 conventional DRAM contract prices up 55–60% QoQ.",
+    survives: true,
+    reason: "specific pricing forecast",
+  },
+  {
+    source: "Evertiq / TrendForce · Jan 5, 2026",
+    sourceUrl: SOURCE_LINKS[1].url,
+    claim: "NAND Flash prices were forecast to rise 33–38% QoQ in Q1 2026.",
+    survives: true,
+    reason: "specific pricing forecast",
+  },
+  {
+    source: "Neumonda · Jan 20, 2026",
+    sourceUrl: SOURCE_LINKS[2].url,
+    claim: "PC and smartphone unit growth alone makes this a broad consumer refresh story.",
+    survives: false,
+    reason: "source says flat-to-low-single-digit consumer unit growth",
+  },
+  {
+    source: "Neumonda · Jan 20, 2026",
+    sourceUrl: SOURCE_LINKS[2].url,
+    claim: "Tight supply removes the usual memory-cycle oversupply risk.",
+    survives: false,
+    reason: "capacity additions, China exposure, and 2027 easing still matter",
+  },
+  {
+    source: "Neumonda · Jan 20, 2026",
+    sourceUrl: SOURCE_LINKS[2].url,
+    claim: "China-linked supply and export-control exposure remain part of the bear case.",
+    survives: true,
+    reason: "risk explicitly identified",
+  },
 ];
 
 const PROMPT_TEXT =
-  "Run a workflow to audit every API endpoint under src/routes/ for missing auth checks";
+  "Run a workflow to research if memory stock is still worth investing";
 
 function usePhaseEngine(speed: number) {
   const [phaseIdx, setPhaseIdx] = useState(0);
@@ -103,7 +208,10 @@ function usePhaseEngine(speed: number) {
   const raf = useRef<number | null>(null);
   const last = useRef<number | null>(null);
   const speedRef = useRef(speed); // read live in the loop so changes apply mid-run
-  speedRef.current = speed;
+
+  useEffect(() => {
+    speedRef.current = speed;
+  }, [speed]);
 
   const goTo = useCallback((idx: number) => {
     idxRef.current = idx;
@@ -218,7 +326,7 @@ export default function Simulator() {
             {phase.id === "prompt" && <PromptStage progress={progress} />}
             {phase.id === "plan" && <PlanStage progress={progress} />}
             {phase.id === "fanout" && <FanoutStage progress={progress} />}
-            {phase.id === "verify" && <VerifyStage progress={progress} />}
+            {phase.id === "verify" && <StressTestStage progress={progress} />}
             {phase.id === "report" && <ReportStage />}
           </motion.div>
         </AnimatePresence>
@@ -385,7 +493,11 @@ function PromptStage({ progress }: { progress: number }) {
 function PlanStage({ progress }: { progress: number }) {
   const totalChars = SCRIPT_LINES.join("\n").length;
   const upto = Math.floor(progress * 1.15 * totalChars);
-  let acc = 0;
+  const visibleLines = SCRIPT_LINES.map((line, i) => {
+    const start = SCRIPT_LINES.slice(0, i).reduce((sum, prior) => sum + prior.length + 1, 0);
+    const visible = upto - start;
+    return { line, visible };
+  });
   return (
     <div className="mx-auto max-w-2xl">
       <div className="overflow-hidden rounded-xl border border-border bg-[#0b0e14]">
@@ -394,10 +506,7 @@ function PlanStage({ progress }: { progress: number }) {
           <span className="ml-auto font-mono text-[10px] text-faint">generated by Claude</span>
         </div>
         <pre className="scroll-thin max-h-[300px] overflow-auto px-4 py-3 font-mono text-[12.5px] leading-relaxed">
-          {SCRIPT_LINES.map((line, i) => {
-            const start = acc;
-            acc += line.length + 1;
-            const visible = upto - start;
+          {visibleLines.map(({ line, visible }, i) => {
             if (visible <= 0) return <div key={i} className="h-[1.45em]" />;
             const text = line.slice(0, visible);
             return (
@@ -419,62 +528,74 @@ function colorize(text: string): string {
 }
 
 function FanoutStage({ progress }: { progress: number }) {
-  // ramp the "completed" count up to TOTAL_AGENTS over the phase
+  // Ramp completed research dimensions over the phase. In the real script, all
+  // five research agents are launched together, then debate/synthesis follow.
   const eased = progress * progress * (3 - 2 * progress); // smoothstep
-  const completed = Math.min(TOTAL_AGENTS, Math.floor(eased * TOTAL_AGENTS));
-  const remaining = TOTAL_AGENTS - completed;
-  const active = Math.min(MAX_CONCURRENT, remaining);
-  const queued = Math.max(0, remaining - active);
-  const pct = Math.round((completed / TOTAL_AGENTS) * 100);
+  const completed = Math.min(
+    RESEARCH_WORKERS.length,
+    Math.floor(eased * (RESEARCH_WORKERS.length + 0.35)),
+  );
+  const running = completed === RESEARCH_WORKERS.length ? 0 : RESEARCH_WORKERS.length - completed;
+  const pct = Math.round((completed / RESEARCH_WORKERS.length) * 100);
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_minmax(0,260px)]">
-      {/* concurrency pool */}
       <div>
         <div className="mb-3 flex items-center justify-between">
           <span className="font-mono text-[11px] uppercase tracking-wide text-faint">
-            concurrency pool
+            research dimensions
           </span>
           <span className="rounded-md bg-agent/10 px-2 py-0.5 font-mono text-[11px] text-agent-soft">
-            {active} / {MAX_CONCURRENT} running
+            {running} running · cap {RUNTIME_CAP}
           </span>
         </div>
-        <div className="grid grid-cols-8 gap-1.5">
-          {Array.from({ length: MAX_CONCURRENT }).map((_, i) => {
-            const filled = i < active;
+        <div className="space-y-2">
+          {RESEARCH_WORKERS.map((worker, i) => {
+            const done = i < completed;
+            const active = !done && completed < RESEARCH_WORKERS.length;
             return (
               <motion.div
-                key={i}
-                animate={filled ? { opacity: 1, scale: 1 } : { opacity: 0.25, scale: 0.92 }}
+                key={worker.key}
+                animate={done ? { opacity: 1, scale: 1 } : { opacity: active ? 0.9 : 0.55, scale: 0.98 }}
                 transition={{ duration: 0.25 }}
-                className={`relative grid aspect-square place-items-center rounded-md border text-[10px] font-mono ${
-                  filled
+                className={`rounded-lg border px-3 py-2.5 transition ${
+                  done
+                    ? "border-good/30 bg-good/5"
+                    : active
                     ? "border-agent/50 bg-agent/15 text-agent-soft"
                     : "border-border-soft bg-surface-2 text-faint"
                 }`}
               >
-                {filled ? (
-                  <span className="block h-2.5 w-2.5 animate-spin rounded-full border border-agent-soft border-t-transparent" />
-                ) : (
-                  <span className="opacity-40">&middot;</span>
-                )}
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] ${
+                      done ? "bg-good/20 text-good" : "bg-agent/20 text-agent-soft"
+                    }`}
+                  >
+                    {done ? "✓" : <span className="h-2.5 w-2.5 animate-spin rounded-full border border-agent-soft border-t-transparent" />}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-text">{worker.label}</div>
+                    <div className="truncate font-mono text-[11px] text-faint">{worker.focus}</div>
+                  </div>
+                </div>
+                {done && <div className="mt-1.5 text-xs text-muted">{worker.output}</div>}
               </motion.div>
             );
           })}
         </div>
         <p className="mt-3 text-xs leading-relaxed text-faint">
-          The runtime keeps the pool full: as an agent finishes, the next queued task takes its
-          slot. The script holds the loop &mdash; results never touch the chat.
+          Each agent loads web tools, searches recent 2025–2026 sources, and returns structured
+          findings. The script stores the digest &mdash; it does not flood the chat with every note.
         </p>
       </div>
 
-      {/* counters */}
       <div className="flex flex-col gap-3">
-        <Counter label="Completed" value={completed} total={TOTAL_AGENTS} color="text-good" />
-        <Counter label="Queued" value={queued} color="text-muted" />
+        <Counter label="Research done" value={completed} total={RESEARCH_WORKERS.length} color="text-good" />
+        <Counter label="Debate + synth next" value={3} color="text-script" />
         <div>
           <div className="mb-1 flex justify-between font-mono text-[11px] text-faint">
-            <span>run progress</span>
+            <span>research phase</span>
             <span>{pct}%</span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-surface-2">
@@ -484,7 +605,7 @@ function FanoutStage({ progress }: { progress: number }) {
             />
           </div>
           <div className="mt-1 text-right font-mono text-[10px] text-faint">
-            cap: 1,000 agents / run
+            total run: {TOTAL_AGENTS} agents · hard cap: 1,000
           </div>
         </div>
       </div>
@@ -514,21 +635,24 @@ function Counter({
   );
 }
 
-function VerifyStage({ progress }: { progress: number }) {
-  const revealCount = Math.min(FINDINGS.length, Math.ceil(progress * 1.05 * FINDINGS.length));
+function StressTestStage({ progress }: { progress: number }) {
+  const revealCount = Math.min(
+    DEBATE_FINDINGS.length,
+    Math.ceil(progress * 1.05 * DEBATE_FINDINGS.length),
+  );
   const strikePhase = progress > 0.72;
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-3 flex items-center gap-2 font-mono text-[11px] uppercase tracking-wide text-faint">
         <span className="h-2 w-2 rounded-full bg-script" />
-        adversarial review &mdash; each finding gets a fresh, independent agent
+        bull vs bear &mdash; weak claims get filtered before synthesis
       </div>
       <div className="space-y-2">
-        {FINDINGS.slice(0, revealCount).map((f, i) => {
+        {DEBATE_FINDINGS.slice(0, revealCount).map((f, i) => {
           const filtered = strikePhase && !f.survives;
           return (
             <motion.div
-              key={f.file}
+              key={`${f.source}-${f.claim}`}
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.04 }}
@@ -558,7 +682,7 @@ function VerifyStage({ progress }: { progress: number }) {
                   {f.claim}
                 </div>
                 <div className="font-mono text-[11px] text-faint">
-                  {f.file} {strikePhase && <span>&mdash; {f.reason}</span>}
+                  {f.source} {strikePhase && <span>&mdash; {f.reason}</span>}
                 </div>
               </div>
             </motion.div>
@@ -570,8 +694,8 @@ function VerifyStage({ progress }: { progress: number }) {
 }
 
 function ReportStage() {
-  const kept = FINDINGS.filter((f) => f.survives);
-  const filtered = FINDINGS.length - kept.length;
+  const kept = DEBATE_FINDINGS.filter((f) => f.survives);
+  const filtered = DEBATE_FINDINGS.length - kept.length;
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.98 }}
@@ -583,29 +707,56 @@ function ReportStage() {
           <span className="grid h-5 w-5 place-items-center rounded-full bg-good/20 text-good">
             &#10003;
           </span>
-          <span className="text-sm font-medium text-text">Auth audit complete</span>
+          <span className="text-sm font-medium text-text">Memory-stock brief complete</span>
           <span className="ml-auto font-mono text-[11px] text-faint">
             {TOTAL_AGENTS} agents &middot; {filtered} claims filtered
           </span>
         </div>
         <div className="space-y-2.5 px-4 py-4">
           <p className="text-sm text-muted">
-            {kept.length} confirmed gaps across <span className="text-text">src/routes/</span>,
-            each cross-checked by an independent agent:
+            Example bottom line: <span className="text-text">selective buy / hold, not a blanket chase</span>.
+            The upcycle is real, but the report keeps the cycle and geopolitical risks visible.
           </p>
           {kept.map((f) => (
-            <div key={f.file} className="flex items-start gap-2 text-sm">
+            <div key={`${f.source}-${f.claim}`} className="flex items-start gap-2 text-sm">
               <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
               <span className="text-text">
                 {f.claim}{" "}
-                <span className="font-mono text-[11px] text-faint">[{f.file}]</span>
+                <a
+                  href={f.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-[11px] text-faint transition hover:text-accent-soft"
+                >
+                  [{f.source}]
+                </a>
               </span>
             </div>
           ))}
+          <div className="rounded-lg border border-border-soft bg-bg-soft/40 px-3 py-2 text-xs leading-relaxed text-faint">
+            Sources:{" "}
+            {SOURCE_LINKS.map((source, i) => (
+              <span key={source.url}>
+                <a
+                  href={source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="transition hover:text-accent-soft"
+                >
+                  {source.title}, {source.date}
+                </a>
+                {i < SOURCE_LINKS.length - 1 ? "; " : ""}
+              </span>
+            ))}
+          </div>
+          <div className="rounded-lg border border-border-soft bg-bg-soft/40 px-3 py-2 text-xs leading-relaxed text-faint">
+            Watch next: HBM sell-through, DRAM/NAND contract pricing, Micron capex, China/export-control headlines, and analyst estimate revisions.
+          </div>
         </div>
         <div className="border-t border-good/20 bg-bg-soft/40 px-4 py-2.5 text-xs text-faint">
-          This single report is all that reaches your context. The {TOTAL_AGENTS} agent results
-          and the filtered claims stayed in the script.
+          This single report is all that reaches your context. The {TOTAL_AGENTS} agent results,
+          sources, debate notes, and filtered claims stayed in the script. Research example only;
+          not personalized financial advice.
         </div>
       </div>
     </motion.div>
