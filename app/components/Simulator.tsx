@@ -14,36 +14,43 @@ const MAX_CONCURRENT = 16;
 
 type Phase = "prompt" | "plan" | "fanout" | "verify" | "report";
 
-const PHASES: { id: Phase; label: string; blurb: string; ms: number }[] = [
+// animMs: how long the stage animates. holdMs: how long the finished frame
+// "dwells" so it can land before we cross-fade to the next stage.
+const PHASES: { id: Phase; label: string; blurb: string; animMs: number; holdMs: number }[] = [
   {
     id: "prompt",
     label: "Prompt",
     blurb: "You describe the task. The word “workflow” tells Claude to orchestrate instead of working turn by turn.",
-    ms: 2600,
+    animMs: 2600,
+    holdMs: 1400,
   },
   {
     id: "plan",
     label: "Plan → script",
     blurb: "Claude writes a JavaScript orchestration script. The plan now lives in code you can read and rerun — not in the chat.",
-    ms: 4200,
+    animMs: 4200,
+    holdMs: 1600,
   },
   {
     id: "fanout",
     label: "Fan-out",
     blurb: "A runtime executes the script in the background, spawning subagents. At most 16 run at once; up to 1,000 total per run.",
-    ms: 6000,
+    animMs: 6000,
+    holdMs: 1700,
   },
   {
     id: "verify",
     label: "Cross-check",
     blurb: "Independent agents try to refute each finding. Claims that don’t survive the adversarial review are filtered out.",
-    ms: 4200,
+    animMs: 4200,
+    holdMs: 2400,
   },
   {
     id: "report",
     label: "Report",
     blurb: "Only the final, verified answer lands in your context — with citations. Intermediate results stayed in script variables.",
-    ms: 3000,
+    animMs: 2400,
+    holdMs: 900,
   },
 ];
 
@@ -83,24 +90,34 @@ const PROMPT_TEXT =
 
 function usePhaseEngine() {
   const [phaseIdx, setPhaseIdx] = useState(0);
-  const [progress, setProgress] = useState(0); // 0..1 within current phase
+  const [progress, setProgress] = useState(0); // 0..1 within current phase's animation
   const [playing, setPlaying] = useState(true);
+  const [holding, setHolding] = useState(false); // dwelling on a finished frame
+  const [done, setDone] = useState(false);
+
+  // refs are the source of truth for the clock so jump/reset apply mid-frame
+  const idxRef = useRef(0);
+  const progRef = useRef(0);
+  const holdRef = useRef(0); // ms accumulated in the current dwell
+  const holdingRef = useRef(false);
   const raf = useRef<number | null>(null);
   const last = useRef<number | null>(null);
 
-  const reset = useCallback(() => {
-    setPhaseIdx(0);
-    setProgress(0);
-    setPlaying(true);
+  const goTo = useCallback((idx: number) => {
+    idxRef.current = idx;
+    progRef.current = 0;
+    holdRef.current = 0;
+    holdingRef.current = false;
     last.current = null;
-  }, []);
-
-  const jump = useCallback((idx: number) => {
     setPhaseIdx(idx);
     setProgress(0);
-    setPlaying(true); // replay the stage you click into, instead of freezing on its empty first frame
-    last.current = null;
+    setHolding(false);
+    setDone(false);
+    setPlaying(true);
   }, []);
+
+  const reset = useCallback(() => goTo(0), [goTo]);
+  const jump = useCallback((idx: number) => goTo(idx), [goTo]);
 
   useEffect(() => {
     if (!playing) {
@@ -108,39 +125,53 @@ function usePhaseEngine() {
       last.current = null;
       return;
     }
-    const dur = PHASES[phaseIdx].ms;
-    const step = (t: number) => {
+    const loop = (t: number) => {
       if (last.current == null) last.current = t;
       const dt = t - last.current;
       last.current = t;
-      setProgress((p) => {
-        const np = p + dt / dur;
-        if (np >= 1) {
-          if (phaseIdx < PHASES.length - 1) {
-            setPhaseIdx((i) => i + 1);
-            last.current = null;
-            return 0;
-          }
-          setPlaying(false);
-          return 1;
+      const phase = PHASES[idxRef.current];
+
+      if (!holdingRef.current) {
+        progRef.current = Math.min(1, progRef.current + dt / phase.animMs);
+        if (progRef.current >= 1) {
+          holdingRef.current = true;
+          holdRef.current = 0;
+          setHolding(true);
         }
-        return np;
-      });
-      raf.current = requestAnimationFrame(step);
+      } else {
+        holdRef.current += dt;
+        if (holdRef.current >= phase.holdMs) {
+          if (idxRef.current < PHASES.length - 1) {
+            idxRef.current += 1;
+            progRef.current = 0;
+            holdRef.current = 0;
+            holdingRef.current = false;
+            setHolding(false);
+            setPhaseIdx(idxRef.current);
+          } else {
+            setProgress(1);
+            setPlaying(false);
+            setDone(true);
+            return; // finished — stop the loop
+          }
+        }
+      }
+
+      setProgress(progRef.current);
+      raf.current = requestAnimationFrame(loop);
     };
-    raf.current = requestAnimationFrame(step);
+    raf.current = requestAnimationFrame(loop);
     return () => {
       if (raf.current) cancelAnimationFrame(raf.current);
     };
-  }, [playing, phaseIdx]);
+  }, [playing]);
 
-  return { phaseIdx, progress, playing, setPlaying, reset, jump };
+  return { phaseIdx, progress, playing, holding, done, setPlaying, reset, jump };
 }
 
 export default function Simulator() {
-  const { phaseIdx, progress, playing, setPlaying, reset, jump } = usePhaseEngine();
+  const { phaseIdx, progress, playing, holding, done, setPlaying, reset, jump } = usePhaseEngine();
   const phase = PHASES[phaseIdx];
-  const done = phaseIdx === PHASES.length - 1 && progress >= 1;
 
   return (
     <div className="rounded-2xl border border-border bg-surface/70 backdrop-blur-sm shadow-2xl shadow-black/40 overflow-hidden">
@@ -159,10 +190,10 @@ export default function Simulator() {
         <AnimatePresence mode="wait">
           <motion.div
             key={phase.id}
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.35 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.5, ease: "easeInOut" }}
           >
             {phase.id === "prompt" && <PromptStage progress={progress} />}
             {phase.id === "plan" && <PlanStage progress={progress} />}
@@ -193,8 +224,16 @@ export default function Simulator() {
           >
             <RestartIcon /> Restart
           </button>
-          <div className="ml-auto font-mono text-xs text-faint">
-            step {phaseIdx + 1}/{PHASES.length}
+          <div className="ml-auto flex items-center gap-3">
+            {playing && holding && !done && (
+              <span className="flex items-center gap-1.5 font-mono text-xs text-accent-soft">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+                {phaseIdx < PHASES.length - 1 ? "next step…" : "wrapping up…"}
+              </span>
+            )}
+            <span className="font-mono text-xs text-faint">
+              step {phaseIdx + 1}/{PHASES.length}
+            </span>
           </div>
         </div>
       </div>
