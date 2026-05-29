@@ -42,9 +42,9 @@ const ROWS: { label: string; cells: Record<Col, string> }[] = [
   {
     label: "Scale",
     cells: {
-      subagents: "A few tasks per turn",
+      subagents: "A few delegated tasks per turn",
       skills: "Same as subagents",
-      workflows: "Dozens to hundreds per run",
+      workflows: "Dozens to hundreds of agents per run",
     },
   },
   {

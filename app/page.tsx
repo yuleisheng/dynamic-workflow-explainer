@@ -301,8 +301,9 @@ function Footer() {
           <div className="max-w-sm">
             <div className="text-sm font-semibold">Dynamic Workflows — an interactive explainer</div>
             <p className="mt-1 text-xs leading-relaxed text-faint">
-              An unofficial educational visualization of a Claude Code feature. Illustrative numbers
-              and findings in the simulator. Not affiliated with Anthropic.
+              An unofficial educational visualization of a Claude Code feature. The simulator&apos;s
+              script, agent counts, and findings are illustrative, not a real API. Not affiliated
+              with Anthropic.
             </p>
           </div>
           <div className="text-sm">
